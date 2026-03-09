@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PageVoice v2 – PDF Reader</title>
+  <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f0e8;
+      --surface: #faf7f2;
+      --border: #ddd8ce;
+      --border2: #c8c0b4;
+      --accent: #b85c2a;
+      --accent2: #4a7c6f;
+      --text: #1e1a16;
+      --muted: #8a8078;
+      --faint: #e8e2d8;
+      --highlight-bg: #b85c2a14;
+      --spoken: #c8c0b488;
+      --radius: 3px;
+    }
+
+    body.dark {
+      --bg: #0f0e0c;
+      --surface: #181612;
+      --border: #2c2820;
+      --border2: #3a342c;
+      --accent: #e8943a;
+      --accent2: #6ab4a4;
+      --text: #f0ebe0;
+      --muted: #6b6058;
+      --faint: #201e18;
+      --highlight-bg: #e8943a14;
+      --spoken: #2a2620aa;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* Paper texture */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 20px 36px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+
+    .logo {
+      font-family: 'Lora', serif;
+      font-size: 1.5rem;
+      color: var(--accent);
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .logo-sub {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .header-right { display: flex; gap: 10px; align-items: center; }
+
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      cursor: pointer;
+      padding: 6px 10px;
+      font-size: 0.85rem;
+      transition: all 0.15s;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Main layout ── */
+    .main {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 36px 24px;
+      gap: 24px;
+      flex: 1;
+    }
+
+    .content { width: 100%; max-width: 880px; display: flex; flex-direction: column; gap: 20px; }
+
+    /* ── Upload ── */
+    .upload-zone {
+      border: 1.5px dashed var(--border2);
+      border-radius: var(--radius);
+      padding: 52px 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+      background: var(--surface);
+    }
+
+    .upload-zone:hover, .upload-zone.drag-over {
+      border-color: var(--accent);
+      background: var(--highlight-bg);
+    }
+
+    .upload-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+
+    .upload-icon { font-size: 2.8rem; margin-bottom: 14px; }
+
+    .upload-zone h2 {
+      font-family: 'Lora', serif;
+      font-size: 1.25rem;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .upload-zone p { color: var(--muted); font-size: 0.75rem; letter-spacing: 0.06em; }
+
+    /* ── File chip ── */
+    .file-chip {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 0.8rem;
+    }
+    .file-chip.visible { display: flex; }
+    .chip-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); flex-shrink: 0; }
+    .chip-name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip-meta { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+
+    /* ── Loading ── */
+    .loading { display: none; align-items: center; gap: 12px; padding: 14px 0; color: var(--muted); font-size: 0.8rem; }
+    .loading.visible { display: flex; }
+    .spinner { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Controls panel ── */
+    .controls {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+    }
+    .controls.visible { display: flex; }
+
+    /* Transport row */
+    .transport {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.07em;
+      padding: 9px 18px;
+      border: 1.5px solid;
+      border-radius: var(--radius);
+      cursor: pointer;
+      transition: all 0.15s;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .btn-play {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+      min-width: 90px;
+      font-weight: 500;
+    }
+    .btn-play:hover { opacity: 0.85; }
+    .btn-play.paused { background: var(--accent2); border-color: var(--accent2); }
+
+    .btn-nav {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--muted);
+    }
+    .btn-nav:hover { border-color: var(--text); color: var(--text); }
+
+    .btn-stop {
+      background: transparent;
+      border-color: #c03a2b44;
+      color: #c03a2b;
+    }
+    .btn-stop:hover { border-color: #c03a2b; background: #c03a2b12; }
+
+    /* Mode toggle */
+    .mode-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .toggle-label { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+
+    .toggle {
+      position: relative;
+      width: 38px; height: 20px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0;
+      background: var(--border2);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      left: 3px; top: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: var(--accent2); }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(18px); }
+
+    /* Sliders row */
+    .sliders-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 560px) { .sliders-row { grid-template-columns: 1fr; } }
+
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .slider-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .slider-value { font-size: 0.75rem; color: var(--accent); font-weight: 500; }
+
+    input[type="range"] {
+      width: 100%;
+      -webkit-appearance: none;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 5px var(--accent);
+    }
+
+    /* Voice + font row */
+    .options-row {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .opt-group { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 180px; }
+    .opt-label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+
+    select {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      outline: none;
+      cursor: pointer;
+      flex: 1;
+    }
+    select:focus { border-color: var(--accent); }
+
+    /* Seekable progress bar */
+    .progress-wrap {
+      position: relative;
+      cursor: pointer;
+      padding: 6px 0;
+      margin: -2px 0;
+    }
+    .progress-track {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      width: 0%;
+      transition: width 0.25s;
+      border-radius: 2px;
+    }
+    .progress-wrap:hover .progress-track { height: 6px; }
+    .progress-thumb {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 12px; height: 12px;
+      background: var(--accent);
+      border-radius: 50%;
+      box-shadow: 0 0 5px var(--accent);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.15s;
+      left: 0%;
+    }
+    .progress-wrap:hover .progress-thumb { opacity: 1; }
+
+    .progress-info {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 5px;
+    }
+    .progress-info span { font-size: 0.68rem; color: var(--muted); }
+
+    /* Keyboard hints */
+    .kb-hints {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      font-size: 0.67rem;
+      color: var(--muted);
+      padding-top: 2px;
+      border-top: 1px solid var(--faint);
+    }
+    kbd {
+      background: var(--faint);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 1px 5px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.65rem;
+      margin-right: 4px;
+    }
+
+    /* ── Page jump ── */
+    .page-jump {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .page-jump input[type="number"] {
+      width: 60px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 8px;
+      border-radius: var(--radius);
+      outline: none;
+      -moz-appearance: textfield;
+    }
+    .page-jump input::-webkit-outer-spin-button,
+    .page-jump input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .page-jump input:focus { border-color: var(--accent); }
+
+    /* ── Reader ── */
+    .reader-box {
+      display: none;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--surface);
+    }
+    .reader-box.visible { display: flex; }
+
+    .reader-header {
+      padding: 10px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.7rem;
+      color: var(--muted);
+      gap: 12px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--border2);
+      transition: background 0.2s, box-shadow 0.2s;
+    }
+    .status-dot.playing {
+      background: #4caf7d;
+      box-shadow: 0 0 7px #4caf7d;
+      animation: blink 1.4s ease-in-out infinite;
+    }
+    .status-dot.paused { background: var(--accent); }
+
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    .lines-container {
+      max-height: 440px;
+      overflow-y: auto;
+      padding: 18px 16px;
+      scroll-behavior: smooth;
+    }
+    .lines-container::-webkit-scrollbar { width: 5px; }
+    .lines-container::-webkit-scrollbar-track { background: transparent; }
+    .lines-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .line-item {
+      font-family: 'Lora', serif;
+      line-height: 1.8;
+      padding: 4px 12px;
+      border-left: 2px solid transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+      margin-bottom: 1px;
+      border-radius: 0 2px 2px 0;
+      font-size: var(--reader-font-size, 1.05rem);
+      position: relative;
+    }
+
+    .line-item:hover {
+      color: var(--text);
+      background: var(--faint);
+    }
+
+    .line-item.active {
+      color: var(--text);
+      border-left-color: var(--accent);
+      background: var(--highlight-bg);
+    }
+
+    .line-item.spoken {
+      color: var(--spoken);
+      border-left-color: transparent;
+    }
+
+    /* Word highlight inside active line */
+    .word-highlight {
+      background: var(--accent);
+      color: white;
+      border-radius: 2px;
+      padding: 0 1px;
+    }
+
+    /* Page break indicator */
+    .page-break {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      color: var(--muted);
+      font-size: 0.68rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .page-break::before, .page-break::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* Font size buttons */
+    .font-btns { display: flex; gap: 4px; }
+    .font-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 2px;
+      cursor: pointer;
+      padding: 3px 7px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.68rem;
+      transition: all 0.15s;
+    }
+    .font-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    @media (max-width: 600px) {
+      header { padding: 16px 20px; }
+      .main { padding: 20px 14px; }
+      .transport { gap: 6px; }
+      .btn { padding: 8px 12px; font-size: 0.7rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    PageVoice
+    <span class="logo-sub">pdf reader</span>
+  </div>
+  <div class="header-right">
+    <button class="icon-btn" id="themeBtn" title="Toggle dark mode">🌙</button>
+  </div>
+</header>
+
+<div class="main">
+<div class="content">
+
+  <!-- Upload -->
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept=".pdf"/>
+    <div class="upload-icon">📖</div>
+    <h2>Drop your PDF here</h2>
+    <p>or click to browse &nbsp;·&nbsp; text-based PDFs only</p>
+  </div>
+
+  <!-- File chip -->
+  <div class="file-chip" id="fileChip">
+    <div class="chip-dot"></div>
+    <span class="chip-name" id="chipName">—</span>
+    <span class="chip-meta" id="chipMeta"></span>
+    <button class="icon-btn" id="clearBtn" style="padding:4px 10px;font-size:0.7rem;">✕ Clear</button>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loadingEl">
+    <div class="spinner"></div>
+    <span>Extracting text…</span>
+    <span id="loadProgress" style="color:var(--accent)"></span>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls" id="controls">
+
+    <!-- Transport -->
+    <div class="transport">
+      <button class="btn btn-nav" id="prevBtn">← Prev</button>
+      <button class="btn btn-play" id="playPauseBtn">▶ Play</button>
+      <button class="btn btn-nav" id="nextBtn">Next →</button>
+      <button class="btn btn-stop" id="stopBtn">■ Stop</button>
+
+      <div class="mode-toggle" title="Sentence mode reads whole sentences instead of individual lines">
+        <span class="toggle-label">Sentence</span>
+        <label class="toggle">
+          <input type="checkbox" id="sentenceMode"/>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Sliders -->
+    <div class="sliders-row">
+      <div class="slider-group">
+        <div class="slider-header">
+          <span class="slider-label">Speed</span>
+          <span class="slider-value" id="speedVal">1.0×</span>
+        </div>
+        <input type="range" id="speedSlider" min="0.5" max="2.5" step="0.1" value="1.0"/>
+      </div>
+      <div class="slider-group">
+        <div class="slider-header">
+          <span class="slider-label">Pitch</span>
+          <span class="slider-value" id="pitchVal">1.0</span>
+        </div>
+        <input type="range" id="pitchSlider" min="0.5" max="2.0" step="0.1" value="1.0"/>
+      </div>
+    </div>
+
+    <!-- Voice + options -->
+    <div class="options-row">
+      <div class="opt-group">
+        <span class="opt-label">Voice</span>
+        <select id="voiceSelect"><option>Loading…</option></select>
+      </div>
+      <div class="page-jump">
+        <span class="opt-label">Go to pg.</span>
+        <input type="number" id="pageInput" min="1" value="1" placeholder="1"/>
+        <button class="icon-btn" id="pageGoBtn">Go</button>
+      </div>
+    </div>
+
+    <!-- Seekable progress -->
+    <div>
+      <div class="progress-wrap" id="progressWrap" title="Click to seek">
+        <div class="progress-track">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-thumb" id="progressThumb"></div>
+      </div>
+      <div class="progress-info">
+        <span id="progressText">Line 0 / 0</span>
+        <span id="etaText">—</span>
+      </div>
+    </div>
+
+    <!-- Keyboard hints -->
+    <div class="kb-hints">
+      <span><kbd>Space</kbd>Play/Pause</span>
+      <span><kbd>←</kbd>Prev</span>
+      <span><kbd>→</kbd>Next</span>
+      <span><kbd>↑</kbd>Speed+</span>
+      <span><kbd>↓</kbd>Speed−</span>
+      <span><kbd>Esc</kbd>Stop</span>
+    </div>
+  </div>
+
+  <!-- Reader -->
+  <div class="reader-box" id="readerBox">
+    <div class="reader-header">
+      <div class="status-indicator">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Ready</span>
+      </div>
+      <span id="pageLabel">—</span>
+      <div class="font-btns">
+        <button class="font-btn" id="fontDown">A−</button>
+        <button class="font-btn" id="fontUp">A+</button>
+      </div>
+    </div>
+    <div class="lines-container" id="linesContainer"></div>
+  </div>
+
+</div>
+</div>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  // ── State ──
+  let lines = [];          // [{text, page, words}]
+  let currentLine = -1;
+  let isPlaying = false;
+  let isPaused = false;
+  let utterance = null;
+  let voices = [];
+  let fontSize = 1.05;     // rem
+  let totalPages = 0;
+  let wordBoundaries = []; // track word positions for highlight
+
+  // ── Elements ──
+  const uploadZone    = document.getElementById('uploadZone');
+  const fileInput     = document.getElementById('fileInput');
+  const fileChip      = document.getElementById('fileChip');
+  const chipName      = document.getElementById('chipName');
+  const chipMeta      = document.getElementById('chipMeta');
+  const clearBtn      = document.getElementById('clearBtn');
+  const loadingEl     = document.getElementById('loadingEl');
+  const loadProgress  = document.getElementById('loadProgress');
+  const controls      = document.getElementById('controls');
+  const readerBox     = document.getElementById('readerBox');
+  const linesContainer= document.getElementById('linesContainer');
+  const playPauseBtn  = document.getElementById('playPauseBtn');
+  const prevBtn       = document.getElementById('prevBtn');
+  const nextBtn       = document.getElementById('nextBtn');
+  const stopBtn       = document.getElementById('stopBtn');
+  const speedSlider   = document.getElementById('speedSlider');
+  const speedVal      = document.getElementById('speedVal');
+  const pitchSlider   = document.getElementById('pitchSlider');
+  const pitchVal      = document.getElementById('pitchVal');
+  const voiceSelect   = document.getElementById('voiceSelect');
+  const sentenceMode  = document.getElementById('sentenceMode');
+  const progressFill  = document.getElementById('progressFill');
+  const progressThumb = document.getElementById('progressThumb');
+  const progressWrap  = document.getElementById('progressWrap');
+  const progressText  = document.getElementById('progressText');
+  const etaText       = document.getElementById('etaText');
+  const statusDot     = document.getElementById('statusDot');
+  const statusTextEl  = document.getElementById('statusText');
+  const pageLabel     = document.getElementById('pageLabel');
+  const pageInput     = document.getElementById('pageInput');
+  const pageGoBtn     = document.getElementById('pageGoBtn');
+  const fontDown      = document.getElementById('fontDown');
+  const fontUp        = document.getElementById('fontUp');
+  const themeBtn      = document.getElementById('themeBtn');
+
+  // ── Theme ──
+  themeBtn.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    themeBtn.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
+  });
+
+  // ── Font size ──
+  fontDown.addEventListener('click', () => setFontSize(fontSize - 0.1));
+  fontUp.addEventListener('click',   () => setFontSize(fontSize + 0.1));
+  function setFontSize(s) {
+    fontSize = Math.max(0.75, Math.min(1.8, parseFloat(s.toFixed(2))));
+    document.getElementById('linesContainer').style.setProperty('--reader-font-size', fontSize + 'rem');
+  }
+
+  // ── Voices ──
+  function loadVoices() {
+    let all = speechSynthesis.getVoices();
+    voices = all.filter(v => v.lang.startsWith('en'));
+    if (!voices.length) voices = all;
+    voiceSelect.innerHTML = '';
+    voices.forEach((v, i) => {
+      const o = document.createElement('option');
+      o.value = i;
+      o.textContent = `${v.name} (${v.lang})`;
+      voiceSelect.appendChild(o);
+    });
+  }
+  speechSynthesis.onvoiceschanged = loadVoices;
+  loadVoices();
+
+  // ── Drag & Drop ──
+  uploadZone.addEventListener('dragover',  e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', ()  => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault(); uploadZone.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f?.type === 'application/pdf') loadPDF(f);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadPDF(fileInput.files[0]); });
+  clearBtn.addEventListener('click', resetAll);
+
+  // ── PDF Loading (improved line grouping) ──
+  async function loadPDF(file) {
+    resetAll(false);
+    chipName.textContent = file.name;
+    fileChip.classList.add('visible');
+    uploadZone.style.display = 'none';
+    loadingEl.classList.add('visible');
+
+    try {
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      totalPages = pdf.numPages;
+      chipMeta.textContent = `${totalPages} page${totalPages !== 1 ? 's' : ''}`;
+      pageInput.max = totalPages;
+
+      let allLines = [];
+
+      for (let p = 1; p <= totalPages; p++) {
+        loadProgress.textContent = `page ${p}/${totalPages}`;
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+
+        // ── FIX: robust line grouping with tolerance band ──
+        // Group text items by Y with ±2px tolerance to handle mixed fonts/superscripts
+        const groups = [];
+        content.items.forEach(item => {
+          if (!item.str.trim()) return;
+          const y = item.transform[5];
+          let found = groups.find(g => Math.abs(g.y - y) < 3);
+          if (found) {
+            found.items.push(item);
+          } else {
+            groups.push({ y, items: [item] });
+          }
+        });
+
+        // Sort top-to-bottom, then left-to-right within each line
+        groups.sort((a, b) => b.y - a.y);
+        groups.forEach(g => {
+          g.items.sort((a, b) => a.transform[4] - b.transform[4]);
+          const text = g.items.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim();
+          // ── FIX: better junk filter ──
+          if (text.length >= 3 && !/^[\s\-–—·•\*\.]{1,4}$/.test(text)) {
+            allLines.push({ text, page: p, words: text.split(/\s+/) });
+          }
+        });
+      }
+
+      // ── Sentence mode merging ──
+      lines = allLines;
+      loadingEl.classList.remove('visible');
+      loadProgress.textContent = '';
+      renderLines();
+      controls.classList.add('visible');
+      readerBox.classList.add('visible');
+      updateProgress(0);
+
+    } catch(err) {
+      console.error(err);
+      loadingEl.classList.remove('visible');
+      alert('Could not read this PDF. Make sure it contains selectable text (not a scanned image).');
+      resetAll();
+    }
+  }
+
+  // ── Get effective lines (respects sentence mode) ──
+  function getEffectiveLines() {
+    if (!sentenceMode.checked) return lines;
+    // Merge lines into sentences by joining until we hit sentence-ending punctuation
+    const merged = [];
+    let buf = '';
+    let startPage = 1;
+    lines.forEach(l => {
+      if (!buf) startPage = l.page;
+      buf += (buf ? ' ' : '') + l.text;
+      if (/[.!?]["']?\s*$/.test(l.text)) {
+        merged.push({ text: buf, page: startPage, words: buf.split(/\s+/) });
+        buf = '';
+      }
+    });
+    if (buf) merged.push({ text: buf, page: startPage, words: buf.split(/\s+/) });
+    return merged;
+  }
+
+  // ── Render ──
+  function renderLines() {
+    const effective = getEffectiveLines();
+    linesContainer.innerHTML = '';
+    let lastPage = 0;
+    effective.forEach((l, i) => {
+      if (l.page !== lastPage) {
+        if (lastPage !== 0) {
+          const pb = document.createElement('div');
+          pb.className = 'page-break';
+          pb.textContent = `Page ${l.page}`;
+          linesContainer.appendChild(pb);
+        }
+        lastPage = l.page;
+      }
+      const div = document.createElement('div');
+      div.className = 'line-item';
+      div.dataset.index = i;
+      div.dataset.page = l.page;
+      div.innerHTML = l.words.map((w,wi) =>
+        `<span class="word" data-wi="${wi}">${w}</span>`
+      ).join(' ');
+      div.addEventListener('click', () => { jumpTo(i); });
+      linesContainer.appendChild(div);
+    });
+    updateProgress(currentLine < 0 ? 0 : currentLine);
+  }
+
+  sentenceMode.addEventListener('change', () => {
+    const wasPlaying = isPlaying;
+    stopSpeech();
+    currentLine = -1;
+    renderLines();
+    if (wasPlaying) speakFrom(0);
+  });
+
+  function jumpTo(idx) {
+    stopSpeech();
+    currentLine = idx;
+    highlightLine(idx);
+    speakFrom(idx);
+  }
+
+  // ── Highlight (O(1) via dataset, not looping all elements) ──
+  let lastActiveEl = null;
+  let lastSpokenEls = [];
+
+  function highlightLine(idx) {
+    const effective = getEffectiveLines();
+
+    // Remove previous active
+    if (lastActiveEl) {
+      lastActiveEl.classList.remove('active');
+      lastActiveEl.classList.add('spoken');
+      lastSpokenEls.push(lastActiveEl);
+    }
+
+    const el = linesContainer.querySelector(`[data-index="${idx}"]`);
+    if (el) {
+      el.classList.add('active');
+      el.classList.remove('spoken');
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      lastActiveEl = el;
+    }
+
+    updateProgress(idx);
+    if (effective[idx]) pageLabel.textContent = `Page ${effective[idx].page}`;
+  }
+
+  // ── Word highlight via onboundary ──
+  function highlightWord(charIndex, el) {
+    if (!el) return;
+    const spans = el.querySelectorAll('.word');
+    // Find which word contains this char index
+    let charCount = 0;
+    spans.forEach((span, i) => {
+      span.classList.remove('word-highlight');
+      const len = span.textContent.length + 1; // +1 for space
+      if (charIndex >= charCount && charIndex < charCount + len) {
+        span.classList.add('word-highlight');
+      }
+      charCount += len;
+    });
+  }
+
+  // ── Progress ──
+  function updateProgress(idx) {
+    const effective = getEffectiveLines();
+    const total = effective.length;
+    if (!total) return;
+    const pct = total ? ((idx + 1) / total * 100) : 0;
+    progressFill.style.width = pct + '%';
+    progressThumb.style.left = pct + '%';
+    progressText.textContent = `Line ${Math.max(0, idx + 1)} / ${total}`;
+
+    // ETA estimate
+    const remaining = total - idx - 1;
+    const speed = parseFloat(speedSlider.value);
+    // avg ~5 words/line, ~150wpm base
+    const avgWords = 5;
+    const wpm = 150 * speed;
+    const minutes = (remaining * avgWords) / wpm;
+    if (minutes > 0.5) {
+      const m = Math.floor(minutes);
+      const s = Math.round((minutes - m) * 60);
+      etaText.textContent = `~${m > 0 ? m+'m ' : ''}${s}s remaining`;
+    } else {
+      etaText.textContent = '';
+    }
+  }
+
+  // Seekable progress bar
+  progressWrap.addEventListener('click', e => {
+    if (!lines.length) return;
+    const rect = progressWrap.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    const effective = getEffectiveLines();
+    const idx = Math.round(pct * (effective.length - 1));
+    jumpTo(Math.max(0, Math.min(effective.length - 1, idx)));
+  });
+
+  // ── Speech ──
+  function speakFrom(idx) {
+    const effective = getEffectiveLines();
+    if (idx >= effective.length) { finishPlayback(); return; }
+    if (idx < 0) idx = 0;
+
+    currentLine = idx;
+    highlightLine(idx);
+    isPlaying = true;
+    isPaused = false;
+    setPlayState('playing');
+
+    const u = new SpeechSynthesisUtterance(effective[idx].text);
+    u.rate  = parseFloat(speedSlider.value);
+    u.pitch = parseFloat(pitchSlider.value);
+    const vi = parseInt(voiceSelect.value);
+    if (voices[vi]) u.voice = voices[vi];
+
+    // Word boundary highlight
+    const activeEl = linesContainer.querySelector(`[data-index="${idx}"]`);
+    u.onboundary = (e) => {
+      if (e.name === 'word') highlightWord(e.charIndex, activeEl);
+    };
+
+    u.onend = () => {
+      if (isPlaying && !isPaused) speakFrom(currentLine + 1);
+    };
+
+    u.onerror = (e) => {
+      if (e.error !== 'interrupted' && e.error !== 'canceled') {
+        console.warn('TTS error:', e.error);
+        if (isPlaying) speakFrom(currentLine + 1);
+      }
+    };
+
+    utterance = u;
+    speechSynthesis.speak(u);
+  }
+
+  function stopSpeech() {
+    isPlaying = false;
+    isPaused = false;
+    speechSynthesis.cancel();
+    utterance = null;
+  }
+
+  function finishPlayback() {
+    isPlaying = false;
+    isPaused = false;
+    utterance = null;
+    setPlayState('done');
+  }
+
+  // ── FIX: True pause/resume ──
+  function togglePlayPause() {
+    if (!lines.length) return;
+
+    if (!isPlaying && !isPaused) {
+      // Start fresh
+      const start = currentLine < 0 ? 0 : currentLine;
+      speakFrom(start);
+    } else if (isPlaying && !isPaused) {
+      // Pause
+      speechSynthesis.pause();
+      isPaused = true;
+      isPlaying = false;
+      setPlayState('paused');
+    } else if (isPaused) {
+      // Resume
+      speechSynthesis.resume();
+      isPaused = false;
+      isPlaying = true;
+      setPlayState('playing');
+    }
+  }
+
+  function setPlayState(state) {
+    if (state === 'playing') {
+      playPauseBtn.textContent = '⏸ Pause';
+      playPauseBtn.classList.remove('paused');
+      statusDot.className = 'status-dot playing';
+      statusTextEl.textContent = 'Playing';
+    } else if (state === 'paused') {
+      playPauseBtn.textContent = '▶ Resume';
+      playPauseBtn.classList.add('paused');
+      statusDot.className = 'status-dot paused';
+      statusTextEl.textContent = 'Paused';
+    } else {
+      playPauseBtn.textContent = '▶ Play';
+      playPauseBtn.classList.remove('paused');
+      statusDot.className = 'status-dot';
+      statusTextEl.textContent = state === 'done' ? 'Done' : 'Ready';
+    }
+  }
+
+  // ── Controls ──
+  playPauseBtn.addEventListener('click', togglePlayPause);
+
+  stopBtn.addEventListener('click', () => {
+    stopSpeech();
+    currentLine = -1;
+    lastActiveEl = null;
+    linesContainer.querySelectorAll('.line-item').forEach(el => el.classList.remove('active','spoken'));
+    linesContainer.querySelectorAll('.word-highlight').forEach(el => el.classList.remove('word-highlight'));
+    progressFill.style.width = '0%';
+    progressThumb.style.left = '0%';
+    progressText.textContent = `Line 0 / ${getEffectiveLines().length}`;
+    etaText.textContent = '—';
+    setPlayState('ready');
+  });
+
+  prevBtn.addEventListener('click', () => {
+    if (currentLine > 0) { stopSpeech(); speakFrom(currentLine - 1); }
+  });
+
+  nextBtn.addEventListener('click', () => {
+    const eff = getEffectiveLines();
+    if (currentLine < eff.length - 1) { stopSpeech(); speakFrom(currentLine + 1); }
+  });
+
+  // Speed — apply immediately without restarting if paused
+  speedSlider.addEventListener('input', () => {
+    speedVal.textContent = parseFloat(speedSlider.value).toFixed(1) + '×';
+    if (isPlaying) { const idx = currentLine; stopSpeech(); speakFrom(idx); }
+    updateProgress(currentLine);
+  });
+
+  pitchSlider.addEventListener('input', () => {
+    pitchVal.textContent = parseFloat(pitchSlider.value).toFixed(1);
+    if (isPlaying) { const idx = currentLine; stopSpeech(); speakFrom(idx); }
+  });
+
+  voiceSelect.addEventListener('change', () => {
+    if (isPlaying) { const idx = currentLine; stopSpeech(); speakFrom(idx); }
+  });
+
+  // ── Page jump ──
+  pageGoBtn.addEventListener('click', jumpToPage);
+  pageInput.addEventListener('keydown', e => { if (e.key === 'Enter') jumpToPage(); });
+
+  function jumpToPage() {
+    const pg = parseInt(pageInput.value);
+    if (isNaN(pg)) return;
+    const effective = getEffectiveLines();
+    const idx = effective.findIndex(l => l.page >= pg);
+    if (idx >= 0) jumpTo(idx);
+  }
+
+  // ── Keyboard ──
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+    if (!lines.length) return;
+    if (e.code === 'Space')       { e.preventDefault(); togglePlayPause(); }
+    else if (e.code === 'ArrowRight') { e.preventDefault(); nextBtn.click(); }
+    else if (e.code === 'ArrowLeft')  { e.preventDefault(); prevBtn.click(); }
+    else if (e.code === 'ArrowUp') {
+      e.preventDefault();
+      speedSlider.value = Math.min(2.5, parseFloat(speedSlider.value) + 0.1).toFixed(1);
+      speedSlider.dispatchEvent(new Event('input'));
+    } else if (e.code === 'ArrowDown') {
+      e.preventDefault();
+      speedSlider.value = Math.max(0.5, parseFloat(speedSlider.value) - 0.1).toFixed(1);
+      speedSlider.dispatchEvent(new Event('input'));
+    } else if (e.code === 'Escape') {
+      stopBtn.click();
+    }
+  });
+
+  // ── Reset ──
+  function resetAll(showUpload = true) {
+    stopSpeech();
+    lines = [];
+    currentLine = -1;
+    lastActiveEl = null;
+    lastSpokenEls = [];
+    linesContainer.innerHTML = '';
+    fileChip.classList.remove('visible');
+    controls.classList.remove('visible');
+    readerBox.classList.remove('visible');
+    loadingEl.classList.remove('visible');
+    progressFill.style.width = '0%';
+    setPlayState('ready');
+    if (showUpload) uploadZone.style.display = '';
+    fileInput.value = '';
+  }
+</script>
+</body>
+</html>
