@@ -224,6 +224,103 @@
     }
     .btn-stop:hover { border-color: #c03a2b; background: #c03a2b12; }
 
+    .btn-export {
+      background: transparent;
+      border-color: var(--accent2);
+      color: var(--accent2);
+    }
+    .btn-export:hover { background: #4a7c6f18; }
+    body.dark .btn-export:hover { background: #6ab4a418; }
+
+    /* Export panel */
+    .export-panel {
+      display: none;
+      flex-direction: column;
+      gap: 14px;
+      background: var(--faint);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      animation: slideDown 0.2s ease;
+    }
+    .export-panel.open { display: flex; }
+    @keyframes slideDown { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+
+    .export-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .export-title { font-size: 0.82rem; color: var(--text); font-weight: 500; }
+
+    .export-note {
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.6;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .export-options {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .export-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+    .btn-record {
+      background: #c03a2b;
+      border-color: #c03a2b;
+      color: white;
+    }
+    .btn-record:hover { background: #a83222; }
+
+    .btn-record-stop {
+      background: transparent;
+      border-color: var(--border2);
+      color: var(--muted);
+    }
+    .btn-record-stop:hover { border-color: var(--text); color: var(--text); }
+
+    .record-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .record-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #c03a2b;
+      animation: blink 0.9s infinite;
+    }
+    #recordTimer { margin-left: auto; color: var(--accent); font-weight: 500; }
+
+    .export-progress-wrap {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .export-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #c03a2b, var(--accent));
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    .btn-download {
+      background: var(--accent2);
+      border-color: var(--accent2);
+      color: white;
+      text-align: center;
+      text-decoration: none;
+      display: none;
+    }
+    .btn-download.visible { display: block; }
+    .btn-download:hover { opacity: 0.85; }
+
     /* Mode toggle */
     .mode-toggle {
       display: flex;
@@ -589,6 +686,7 @@
       <button class="btn btn-play" id="playPauseBtn">▶ Play</button>
       <button class="btn btn-nav" id="nextBtn">Next →</button>
       <button class="btn btn-stop" id="stopBtn">■ Stop</button>
+      <button class="btn btn-export" id="exportBtn" title="Record & download as audio file">⬇ Export Audio</button>
 
       <div class="mode-toggle" title="Sentence mode reads whole sentences instead of individual lines">
         <span class="toggle-label">Sentence</span>
@@ -597,6 +695,47 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
+    </div>
+
+    <!-- Export panel -->
+    <div class="export-panel" id="exportPanel">
+      <div class="export-header">
+        <span class="export-title">🎙 Export Audiobook</span>
+        <button class="icon-btn" id="exportCloseBtn" style="padding:3px 8px;font-size:0.7rem;">✕</button>
+      </div>
+      <p class="export-note">
+        The app will silently read the entire document using your selected voice &amp; speed, recording it in real time. This may take a while for long PDFs.
+      </p>
+      <div class="export-options">
+        <div class="opt-group">
+          <span class="opt-label">Range</span>
+          <select id="exportRange">
+            <option value="all">Entire document</option>
+            <option value="current">From current line</option>
+            <option value="page">Current page only</option>
+          </select>
+        </div>
+        <div class="opt-group">
+          <span class="opt-label">Format</span>
+          <select id="exportFormat">
+            <option value="webm">WebM (smaller)</option>
+            <option value="wav">WAV (compatible)</option>
+          </select>
+        </div>
+      </div>
+      <div class="export-actions">
+        <button class="btn btn-record" id="startRecordBtn">⏺ Start Recording</button>
+        <button class="btn btn-record-stop" id="stopRecordBtn" style="display:none">⏹ Stop &amp; Save</button>
+      </div>
+      <div class="record-status" id="recordStatus" style="display:none">
+        <div class="record-dot"></div>
+        <span id="recordStatusText">Recording…</span>
+        <span id="recordTimer">0:00</span>
+      </div>
+      <div class="export-progress-wrap" id="exportProgressWrap" style="display:none">
+        <div class="export-progress-bar" id="exportProgressBar"></div>
+      </div>
+      <a class="btn btn-download" id="downloadLink" style="display:none" download="audiobook.webm">⬇ Download Audio</a>
     </div>
 
     <!-- Sliders -->
@@ -1139,8 +1278,226 @@
     }
   });
 
+  // ══════════════════════════════════════════════
+  // ── EXPORT / DOWNLOAD FEATURE ──
+  // Uses AudioContext + MediaRecorder to capture TTS output as a file
+  // ══════════════════════════════════════════════
+
+  const exportBtn       = document.getElementById('exportBtn');
+  const exportPanel     = document.getElementById('exportPanel');
+  const exportCloseBtn  = document.getElementById('exportCloseBtn');
+  const exportRange     = document.getElementById('exportRange');
+  const exportFormat    = document.getElementById('exportFormat');
+  const startRecordBtn  = document.getElementById('startRecordBtn');
+  const stopRecordBtn   = document.getElementById('stopRecordBtn');
+  const recordStatus    = document.getElementById('recordStatus');
+  const recordStatusText= document.getElementById('recordStatusText');
+  const recordTimer     = document.getElementById('recordTimer');
+  const exportProgressWrap = document.getElementById('exportProgressWrap');
+  const exportProgressBar  = document.getElementById('exportProgressBar');
+  const downloadLink    = document.getElementById('downloadLink');
+
+  let mediaRecorder = null;
+  let recordedChunks = [];
+  let recordTimerInterval = null;
+  let recordSeconds = 0;
+  let isRecording = false;
+  let exportLines = [];
+  let exportIdx = 0;
+
+  exportBtn.addEventListener('click', () => {
+    exportPanel.classList.toggle('open');
+    downloadLink.style.display = 'none';
+    downloadLink.classList.remove('visible');
+  });
+
+  exportCloseBtn.addEventListener('click', () => {
+    if (isRecording) stopRecording();
+    exportPanel.classList.remove('open');
+  });
+
+  exportFormat.addEventListener('change', () => {
+    const fmt = exportFormat.value;
+    downloadLink.download = `audiobook.${fmt === 'wav' ? 'wav' : 'webm'}`;
+  });
+
+  startRecordBtn.addEventListener('click', async () => {
+    if (!lines.length) { alert('Load a PDF first.'); return; }
+    await beginRecording();
+  });
+
+  stopRecordBtn.addEventListener('click', () => stopRecording());
+
+  async function beginRecording() {
+    // Determine which lines to export
+    const effective = getEffectiveLines();
+    const range = exportRange.value;
+
+    if (range === 'all') {
+      exportLines = effective;
+    } else if (range === 'current') {
+      exportLines = effective.slice(Math.max(0, currentLine));
+    } else if (range === 'page') {
+      const pg = lines[Math.max(0, currentLine)]?.page || 1;
+      exportLines = effective.filter(l => l.page === pg);
+    }
+
+    if (!exportLines.length) { alert('No lines to export.'); return; }
+
+    // Check MediaRecorder support
+    const mimeType = exportFormat.value === 'wav'
+      ? (MediaRecorder.isTypeSupported('audio/wav') ? 'audio/wav' : 'audio/webm')
+      : 'audio/webm';
+
+    // We use a destination MediaStream from AudioContext routed through a gain node
+    // Then pipe TTS audio through it for capture
+    let stream;
+    try {
+      // Create an AudioContext and a MediaStreamDestination to capture audio
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const dest = audioCtx.createMediaStreamDestination();
+
+      // We need to capture the system TTS. The only reliable cross-browser
+      // approach is to use getDisplayMedia (screen capture with audio) OR
+      // fall back to just capturing mic. Instead, we use a silent oscillator
+      // trick: create a silent source connected to destination to keep the
+      // stream alive, and rely on the browser routing TTS to the default output.
+      // For Chrome: use getDisplayMedia; for others: warn and use best-effort.
+
+      const hasGetDisplayMedia = !!navigator.mediaDevices?.getDisplayMedia;
+
+      if (hasGetDisplayMedia) {
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: false,
+            audio: { echoCancellation: false, noiseSuppression: false, sampleRate: 44100 }
+          });
+          // If no audio track (user didn't share tab audio), warn
+          if (!stream.getAudioTracks().length) {
+            throw new Error('no_audio');
+          }
+        } catch(e) {
+          if (e.message === 'no_audio') {
+            alert('⚠️ No audio track captured.\n\nWhen sharing, please:\n1. Choose "Share Tab"\n2. Check "Share tab audio" before clicking Share.\n\nTry again.');
+            return;
+          }
+          // User cancelled - abort
+          return;
+        }
+      } else {
+        // Fallback: notify user this won't capture audio properly
+        alert('⚠️ Your browser doesn\'t support tab audio capture.\n\nFor best results use Chrome or Edge, click "Share Tab" and enable "Share tab audio".\n\nContinuing anyway — audio file may be silent.');
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+
+      recordedChunks = [];
+      mediaRecorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = () => finalizeRecording(mimeType, stream);
+      mediaRecorder.start(200);
+
+    } catch(err) {
+      console.error('Recording setup failed:', err);
+      alert('Could not start recording: ' + err.message);
+      return;
+    }
+
+    // UI: recording state
+    isRecording = true;
+    startRecordBtn.style.display = 'none';
+    stopRecordBtn.style.display = '';
+    recordStatus.style.display = 'flex';
+    exportProgressWrap.style.display = 'block';
+    exportProgressBar.style.width = '0%';
+    downloadLink.style.display = 'none';
+    downloadLink.classList.remove('visible');
+    recordSeconds = 0;
+    recordTimer.textContent = '0:00';
+    recordTimerInterval = setInterval(() => {
+      recordSeconds++;
+      const m = Math.floor(recordSeconds / 60);
+      const s = recordSeconds % 60;
+      recordTimer.textContent = `${m}:${s.toString().padStart(2,'0')}`;
+    }, 1000);
+
+    // Stop main playback if running
+    stopSpeech();
+
+    // Start speaking export lines
+    exportIdx = 0;
+    speakExportLine();
+  }
+
+  function speakExportLine() {
+    if (!isRecording) return;
+    if (exportIdx >= exportLines.length) {
+      // Done — stop recording automatically
+      recordStatusText.textContent = 'Finishing…';
+      setTimeout(() => stopRecording(), 600);
+      return;
+    }
+
+    const line = exportLines[exportIdx];
+    const pct = (exportIdx / exportLines.length * 100).toFixed(1);
+    exportProgressBar.style.width = pct + '%';
+    recordStatusText.textContent = `Line ${exportIdx + 1} / ${exportLines.length}`;
+
+    const u = new SpeechSynthesisUtterance(line.text);
+    u.rate  = parseFloat(speedSlider.value);
+    u.pitch = parseFloat(pitchSlider.value);
+    const vi = parseInt(voiceSelect.value);
+    if (voices[vi]) u.voice = voices[vi];
+    u.onend = () => {
+      exportIdx++;
+      speakExportLine();
+    };
+    u.onerror = () => {
+      exportIdx++;
+      speakExportLine();
+    };
+    speechSynthesis.speak(u);
+  }
+
+  function stopRecording() {
+    isRecording = false;
+    clearInterval(recordTimerInterval);
+    speechSynthesis.cancel();
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    startRecordBtn.style.display = '';
+    stopRecordBtn.style.display = 'none';
+    recordStatus.style.display = 'none';
+    exportProgressBar.style.width = '100%';
+  }
+
+  function finalizeRecording(mimeType, stream) {
+    stream.getTracks().forEach(t => t.stop());
+    exportProgressBar.style.width = '100%';
+
+    if (!recordedChunks.length) {
+      alert('No audio was captured. Make sure you shared your tab with audio enabled.');
+      exportProgressWrap.style.display = 'none';
+      return;
+    }
+
+    const ext = mimeType.includes('wav') ? 'wav' : 'webm';
+    const blob = new Blob(recordedChunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const sizeMB = (blob.size / 1024 / 1024).toFixed(1);
+
+    downloadLink.href = url;
+    downloadLink.download = `audiobook.${ext}`;
+    downloadLink.textContent = `⬇ Download Audio (${sizeMB} MB)`;
+    downloadLink.style.display = 'block';
+    downloadLink.classList.add('visible');
+    exportProgressWrap.style.display = 'none';
+  }
+
   // ── Reset ──
   function resetAll(showUpload = true) {
+    if (isRecording) stopRecording();
+    exportPanel.classList.remove('open');
     stopSpeech();
     lines = [];
     currentLine = -1;
